@@ -1,0 +1,131 @@
+Attendance Register Module - What's New
+### RELEASE 2.7 (build 2023050401)
+*   Optimization for very big logstore_standard_log tables. Cron doesn't load all the 
+    user's logs but calculates sessions in a progressive way (parsing only new logs
+    to form new sessions).
+
+## RELEASE 2.6 (2016113001)
+*   [#2] Optimization for AMOS, the central repository of Moodle strings. Now you can
+    download availables module translations simply adding/updating moodle language pack.
+## RELEASE 2.6 (2016113000)
+New features
+*    Support for moodle 3.1
+
+Fixes
+*   session_is_loggedinas() is removed, use \core\session\manager::is_loggedinas() instead
+*   Removed log recalc just after a course backup restore and added a scheduled recalc
+    at next cron because during the restore process, when the function after_execute() 
+    is called some log are missing (moodle bug?) causing wrong report values.
+
+Warning
+*   During a course restore (with logs) do not change the "Course start date", because 
+    the logs of the new course will shift in the time adding or subtracting the time 
+    difference between the old "Course start date" and the new one. In that case the
+    attendance report values could change. (tested on Moodle 3.1)
+*   Inside course backups made in moodle 2.7 2.8 2.9 with the new standard_log plugin 
+    enabled the logs are missing due to the bug MDL-46455, so the log history in the 
+    courses restored from those backups is missing and the attendance register report 
+    are empty
+
+## RELEASE 2.5.1 (2016050900)
+Fixes
+*    Support for scheduled tasks
+
+## RELEASE 2.5.0 (2015111200) Moodle 2.7 compatibility release 2015.11.12.00
+New features
+*    Support for new logging system 
+# Bugfix and performance 2014.03.08.05
+Fixes
+* [#67] User session could be delayed until next login if user pauses activities
+        for some time (shorter than PHP session) and the cron runs creating a 
+        new session.
+* [#60] Fixed typo
+* Minor CSS changes for Moodle 2.6 Bootstrap-based theme
+Performance fixes
+* [#63, #66] A couple of changes greatly reducing the number of queries executing 
+        cron (thanks to MorrisR2)
+* [#65] Reduced verbosity in cron if debuging is off
+
+# Moodle 2.5 compatibility release 2013.09.07.01
+Fixes
+* [#58] Removed usage of deprecated get_context_instance() function
+* [#59] Improved readability using Bootstrap based themes
+
+# Bugfix 2013.07.06.01
+(I've abandoned the previous version numbering, often confused with supported Moodle version number)
+Fixes
+* [#56] Rewritten query that determines which users must be checked for creating 
+        new online sessions (used on each cron run; determines the delay on session 
+        creation)
+* [#57] Minor warning (in DEBUG only) when personal Register page was shown
+
+## BUGFIX 2.4.3+ (2013050901)
+Fixes
+* [#54] Missing completionlib.php reference causes error during cron execution
+
+## RELEASE 2.4.3 (2013040607)
+New Features
+* [#7]  Added Activity Completion support, based on total tracked time
+Fixes
+* [#52] Fixed on-view-completion implementation (it never actually worked)
+Improvements
+* [#28] When a tracked user may also view other users' sessions, in user lists
+        has a shortcut button to see his/her own sessions page.
+* [#43] After a new instance has been created, a message is shown to explain that
+        old Sessions will show on next cron run.
+* [#51] Removed update-sessions-on-user-view feature, that have been hidden and 
+        disabled since a long time ago
+
+## BUGFIX 2.4.2+ (2013032201)
+Fixes
+* [#47] Fixed a regression bug in the improvement fix #37
+* [#46] Fixed Cron not correctly recording last execution time. 
+        It was executing at every cron, regardless of last execution.
+        Now Moodle does not execute module cron if last execution is less than 
+        5 minutes ago.
+
+### RELEASE 2.4.2 (2013020604)
+Fixes
+* [#42] DDL bug in fix for #36 that causes error during upgrade on PostgreSQL
+
+### RELEASE 2.4.1 (2013012906)
+Fixes
+* [#39] Fixed offline session overlapping detection errors 
+* [#36] Fixed compatibility issue with Oracle ('online' columns renamed to 'onlinesess')
+* Fixed minor typos in Italian translation
+* Checked compatibility with Moodle 2.4.1
+Improvements
+* [#37] Improved performance of cron processing in crowded courses (thanks to MorrisR2)
+
+
+### RELEASE 2.3.2 (2012100702)
+Fixes 
+* [#35] Missing 'mod/attendanceregister:addinstance' for Moodle 2.3 compatibility
+
+### RELEASE 2.3.1 (2012081202)
+Fixes
+* [#33] Incompatibilty with PostgreSQL on updating pendingRecalc flag
+* [#34] Error saving Offline Sessions if comments are disabled
+* Removed some PHP warning (normally not shown if debug=off)
+* Capability explicitely checked when saving an Offiline Session, so an error is
+  thrown if a security violation occurs (previously it just didn't save)
+
+New Features
+* [#27] Recalculation buttons have been moved to the Settings menu
+
+Minor Changes
+* Internal refactoring of view.php, removing some mess
+
+Others
+* Verified compatibility with Moodle 2.3.1+ (Build: 20120712)
+
+### RELEASE 2.2.1 (2012081101)
+
+Fixes
+* [#30] Offline Sessions Form shown even if Offline Sessions are disabled.
+* [#5] Recalculating sessions loose data if old Log Entries have been deleted.
+
+New Features
+* [#29] New Capability: 'mod/attendanceregister:addotherofflinesess' allow to add Offline Sessions for other users.
+* [#3] Sessions recalculation could be scheduled for execution on next Cron.
+* [#12] When Session Timeout setting is changed, automatic recalculation is scheduled.

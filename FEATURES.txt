@@ -1,0 +1,8 @@
+Attendance Register is an Activity Module for Moodle 2.x, 3.x, 4.1
+
+The purpose is calculating the time participants spend in a Course or a group of 
+Courses. It actually does not have any "activity" to do, but extends standard 
+Moodle Logging and Statistics, introducing the "time spent on Course" concept.
+
+For a full description see online documentation: 
+https://github.com/CinecaElearning/moodle-mod_attendanceregister/wiki
