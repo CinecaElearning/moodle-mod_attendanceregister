@@ -18,7 +18,7 @@
  * A scheduled task for attendanceregister cron.
  *
  * @package    mod_attendanceregister
- * @copyright  2016 CINECA
+ * @copyright  2012-2016 Lorenzo Nicora, 2016-today CINECA
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 namespace mod_attendanceregister\task;

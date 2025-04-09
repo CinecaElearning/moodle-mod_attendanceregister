@@ -20,9 +20,8 @@
  * These functions are called only by other functions defined in lib.php
  * or in classes defined in attendanceregister_*.class.php
  *
- * @package    mod
- * @subpackage attendanceregister
- * @author Lorenzo Nicora <fad@nicus.it>
+ * @package    mod_attendanceregister
+ * @copyright 2012-2016 Lorenzo Nicora, 2016-today CINECA
  *
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -67,6 +66,44 @@ function attendanceregister__calculate_last_user_online_session_logout($register
 
 
 /**
+ * Sets all log entries unused from previous elaborations in the dump table.
+ *
+ * @param array $dumpentriestodb
+ */
+function attendanceregister__set_dump_entries($dumpentriestodb) {
+    global $DB;
+
+    try {
+        $transaction = $DB->start_delegated_transaction();
+        // $deletetable = $DB->execute('TRUNCATE TABLE {attendanceregister_log_dump}', []);
+
+        $chuncks = array_chunk($dumpentriestodb, 1000);
+        foreach ($chuncks as $chunk) {
+            $insert = "INSERT INTO {attendanceregister_log_dump} (id, eventname, component, action, target, objecttable, ".
+                "objectid, crud, edulevel, contextid, contextlevel, contextinstanceid, userid, courseid, relateduserid, ".
+                "anonymous, other, timecreated, origin, ip, realuserid) VALUES ";
+            $valuesplaceholders = [];
+            for ($i = 1; $i <= count($chunk); $i++) {
+                $valuesplaceholders[] = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            }
+            $values = [];
+            foreach ($chunk as $item) {
+                $values = array_merge($values, array_values((array)$item));
+            }
+            $valuesplaceholderssql = implode(',', $valuesplaceholders);
+            $insert .= $valuesplaceholderssql;
+            $dumpentries = $DB->execute($insert, $values);
+        }
+
+        $transaction->allow_commit();
+    } catch (Exception $e) {
+        mtrace('DB problem, attendanceregister__set_dump_entries rollback');
+        $transaction->rollback($e);
+    }
+}
+
+
+/**
  * This is the function that actually process log entries and calculate sessions
  *
  * Calculate and Save all new Sessions of a given User
@@ -81,7 +118,7 @@ function attendanceregister__calculate_last_user_online_session_logout($register
  * @param progress_bar optional instance of progress_bar to update
  * @return int number of new sessions found
  */
-function attendanceregister__build_new_user_sessions($register, $userid, $fromtime = 0, progress_bar $progressbar = null) {
+function attendanceregister__build_new_user_sessions($register, $userid, $fromtime = 0, ?progress_bar $progressbar = null) {
     global $DB;
 
     // Retrieve ID of Course containing Register.
@@ -93,8 +130,27 @@ function attendanceregister__build_new_user_sessions($register, $userid, $fromti
 
     // Retrieve logs entries for all tracked courses, after fromTime.
     $totallogentriescount = 0;
+
+    $lastcronparsedlogid = get_config('attendanceregister', 'lastcronparsedlogid');
+    if (!$lastcronparsedlogid) {
+        // No previous elaboration so no lastcronparsedlogid.
+        $toid = 0;      // Needed during switchoff to version 2023050401, in case lastcronparsedlogid doesn't exists.
+        // We need to load all the user's or register's logs until the last one.
+        // Since we have no upper limit, we fallback on comparing with the actual elaboration time.
+        $timestamptoconfrontto = time();
+    } else {
+        // Previous elaboration present.
+        // We are going to limit the logs loading to the previous cron last parsed id,
+        // otherwise we could take only a part of the still not parsed data (like just one user's logs.
+        $toid = $lastcronparsedlogid;
+        // We have an upper limit, we need to compare to the limit's log's timecreated.
+        $querysql = "SELECT * FROM {logstore_standard_log} WHERE id = :id";
+        $lastcronparsedlogentry = $DB->get_record_sql($querysql, ['id' => $lastcronparsedlogid]);
+        $timestamptoconfrontto = $lastcronparsedlogentry->timecreated;
+    }
+
     $logentries = attendanceregister__get_user_log_entries_in_courses($userid,
-        $fromtime, $trackedcoursesids, $totallogentriescount);
+        $fromtime, $toid, $trackedcoursesids, $totallogentriescount);
 
     $sessiontimeoutseconds = $register->sessiontimeout * 60;
     $prevlogentry = null;
@@ -102,9 +158,19 @@ function attendanceregister__build_new_user_sessions($register, $userid, $fromti
     $logentriescount = 0;
     $newsessionscount = 0;
     $sessionlastentrytimestamp = 0;
+    $dumpentriestmp = [];
 
     // Loop new entries if any.
     if (is_array($logentries) && count($logentries) > 0) {
+
+
+        $dumpentriestodelete = [];
+        if ($lastcronparsedlogid) {
+            foreach ($logentries as $logentry) {
+                $dumpentriestodelete[] = $logentry->id;
+            }
+        }
+        attendanceregister__delete_dump_entries($dumpentriestodelete);
 
         // Scroll all log entries.
         foreach ($logentries as $logentry) {
@@ -120,6 +186,8 @@ function attendanceregister__build_new_user_sessions($register, $userid, $fromti
             // Check if between prev and current log, last more than Session Timeout
             // if so, the Session ends on the _prev_ log entry.
             if (($logentry->timecreated - $prevlogentry->timecreated) > $sessiontimeoutseconds) {
+                // Remove possible log entries from the dump variable because I transfer them to a session.
+                $dumpentriestmp = [];
                 $newsessionscount++;
 
                 // Estimate Session ended half the Session Timeout after the prev log entry
@@ -139,6 +207,9 @@ function attendanceregister__build_new_user_sessions($register, $userid, $fromti
 
                 // Session has ended: session start on current log entry.
                 $sessionstarttimestamp = $logentry->timecreated;
+            } else {
+                // Log entries that don't go in a session go in the dump variable and eventually in the dump table.
+                $dumpentriestmp[$prevlogentry->id] = $prevlogentry;
             }
             $prevlogentry = $logentry;
         }
@@ -146,7 +217,9 @@ function attendanceregister__build_new_user_sessions($register, $userid, $fromti
         // If the last log entry is not the end of the last calculated session and is older than SessionTimeout
         // create a last session.
         if ( $logentry->timecreated > $sessionlastentrytimestamp &&
-            ( time() - $logentry->timecreated ) > $sessiontimeoutseconds  ) {
+            ( $timestamptoconfrontto - $logentry->timecreated ) > $sessiontimeoutseconds  ) {
+            // Remove possible log entries from the dump variable because I transfer them to a session.
+            $dumpentriestmp = [];
             $newsessionscount++;
 
             // In this case logEntry (and not prevLogEntry is the last entry of the Session).
@@ -162,13 +235,26 @@ function attendanceregister__build_new_user_sessions($register, $userid, $fromti
 
                 $progressbar->update($logentriescount, $totallogentriescount, $msg);
             }
+        } else {
+            // Log entries that don't go in a session go in the dump variable and eventually in the dump table.
+            $dumpentriestmp[$logentry->id] = $logentry;
         }
     }
+
+    $dumpentriestodb = [];
+    foreach ($dumpentriestmp as $tmp) {
+        $dumpentriestodb[$tmp->id] = $tmp;
+    }
+
+    $dumpentriestmp = [];
 
     // Updates Aggregates, only on new session creation.
     if ($newsessionscount) {
         attendanceregister__update_user_aggregates($register, $userid);
     }
+
+    mtrace('dumping logs rows: '. count($dumpentriestodb));
+    attendanceregister__set_dump_entries($dumpentriestodb);
 
     // Finalize Progress Bar.
     if ($progressbar) {
@@ -444,7 +530,7 @@ function attendanceregister__get_coursed_ids_meta_linked($course) {
  * @param array $courseIds
  * @param int $logCount count of records, passed by ref.
  */
-function attendanceregister__get_user_log_entries_in_courses($userid, $fromtime, $courseids, &$logcount) {
+function attendanceregister__get_user_log_entries_in_courses($userid, $fromtime, $toid, $courseids, &$logcount) {
     global $DB;
 
     $courseidlist = implode(',', $courseids);
@@ -456,16 +542,19 @@ function attendanceregister__get_user_log_entries_in_courses($userid, $fromtime,
     $selectlistsql = " *";
     $fromwheresql = " FROM {logstore_standard_log} l WHERE l.userid = :userid "
         ."AND l.timecreated > :fromtime AND l.courseid IN ($courseidlist)";
+    if ($toid) {
+        $fromwheresql .= " AND id < :toid";
+    }
     $orderbysql = " ORDER BY l.timecreated ASC";
     $querysql = "SELECT" . $selectlistsql . $fromwheresql . $orderbysql;
 
     // Execute queries.
     $params = ['userid' => $userid, 'fromtime' => $fromtime];
-    debugging($querysql);
-    debugging(var_export($params, true));
+    if ($toid) {
+        $params['toid'] = $toid;
+    }
     $logentries = $DB->get_records_sql($querysql, $params);
     $logcount = count($logentries); // Optimization suggested by MorrisR2 [https://github.com/MorrisR2].
-
     return $logentries;
 }
 
@@ -520,6 +609,19 @@ function attendanceregister__check_overlapping_current_session($register, $useri
     }
     return ( $user->currentlogin < $logout );
 
+}
+
+/**
+ * Deletes user's register dumped logs
+ * @param int $register
+ * @param int $userid
+ */
+function attendanceregister__delete_dump_entries($idarray) {
+    global $DB;
+    $idlist = implode(',', $idarray);
+    $querysql = "DELETE FROM {attendanceregister_log_dump} WHERE id in ($idlist)";
+    $result = $DB->execute($querysql);
+    return $result;
 }
 
 /**
@@ -735,7 +837,6 @@ function attendanceregister__getuser($userid) {
 
 /**
  * Check if a given User ID is of the currently logged user
- * @global object $USER
  * @param int $userid (consider null as current user)
  * @return boolean
  */
@@ -851,6 +952,9 @@ function attendanceregister__didcronranafterinstancecreation($cm) {
  */
 class mod_attendanceregister_selfcertification_edit_form extends moodleform {
 
+    /**
+     * Form definition.
+     */
     public function definition() {
         global $CFG, $USER, $OUTPUT;
 
@@ -945,6 +1049,9 @@ class mod_attendanceregister_selfcertification_edit_form extends moodleform {
         $this->add_action_buttons();
     }
 
+    /**
+     * Form validation.
+     */
     public function validation($data, $files) {
         global $USER, $DB;
 
@@ -1002,13 +1109,37 @@ class mod_attendanceregister_selfcertification_edit_form extends moodleform {
  */
 class attendanceregister_user_capablities {
 
+    /**
+     * @var bool traking capability.
+     */
     public $istracked = false;
+    /**
+     * @var bool canviewownregister capability.
+     */
     public $canviewownregister = false;
+    /**
+     * @var bool canviewotherregisters capability.
+     */
     public $canviewotherregisters = false;
+    /**
+     * @var bool canaddownofflinesessions capability.
+     */
     public $canaddownofflinesessions = false;
+    /**
+     * @var bool canaddotherofflinesessions capability.
+     */
     public $canaddotherofflinesessions = false;
+    /**
+     * @var bool candeleteownofflinesessions capability.
+     */
     public $candeleteownofflinesessions = false;
+    /**
+     * @var bool candeleteotherofflinesessions capability.
+     */
     public $candeleteotherofflinesessions = false;
+    /**
+     * @var bool canrecalcsessions capability.
+     */
     public $canrecalcsessions = false;
 
     /**

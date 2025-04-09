@@ -18,10 +18,8 @@
  * attendanceregister_user_aggregates_summary.class.php
  * Class containing User's Aggregate in an AttendanceRegister (only for summary aggregates)
  *
- * @package    mod
- * @subpackage attendanceregister
- * @version $Id
- * @author Lorenzo Nicora <fad@nicus.it>
+ * @package    mod_attendanceregister
+ * @copyright 2012-2016 Lorenzo Nicora, 2016-today CINECA
  *
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -32,7 +30,6 @@
  * summary infos only (total & grandtotal)
  * for a User and a Register instance.
  *
- * @author nicus
  */
 class attendanceregister_user_aggregates_summary {
 

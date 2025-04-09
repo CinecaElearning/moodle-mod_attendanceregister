@@ -15,6 +15,15 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * cronlib.php - Class containing Attendance Register's cron functions
+ *
+ * @package    mod_attendanceregister
+ * @copyright 2012-2016 Lorenzo Nicora, 2016-today CINECA
+ *
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+/**
  * Takes N log rows from the last execution, parses them and organizes sessions.
  *
  * @param array $registers
@@ -47,6 +56,7 @@ function attendanceregister_update_sessions_from_id($registers, $fromid) {
 
     // Loads in a separate variable the previously elaborated log entries that weren't put in a session.
     $dumpentries = attendanceregister__get_dump_entries();
+    mtrace('logentries in dump: '. count($dumpentries));
     $maxusersregisterslogouts = get_max_users_registers_logouts();
 
     mtrace('starting query from id: '. $fromid .' - '. date("H:i:s"));
@@ -57,11 +67,11 @@ function attendanceregister_update_sessions_from_id($registers, $fromid) {
     $logentries = $logentriesarray[0];
     $lastcronparsedlogid = $logentriesarray[1];
 
-    if ($lastcronparsedlogid == $fromid) {
+    if ($lastcronparsedlogid == $fromid && count($dumpentries) == 0) {
         // No ids at all. No elaboration nor lastcronparsedlogid update.
         mtrace('No entries at all. Exiting.');
         return;
-    } else if (count($logentries)) {
+    } else if (count($logentries) || count($dumpentries)) {
         // Some logentries are present, elaborate.
         mtrace('logentries before filter: '. count($logentries));
 
@@ -148,7 +158,7 @@ function attendanceregister_update_sessions_from_id($registers, $fromid) {
                         // Save a new session to the prev entry.
                         $newsessionscount++;
                         attendanceregister__save_session($registers[$registerid], $userid,
-                        $sessionstarttimestamp, $estimatedsessionend);
+                            $sessionstarttimestamp, $estimatedsessionend);
                     } else {
                         // Log entries that don't go in a session go in the dump variable and eventually in the dump table.
                         $dumpentriestmp[$logentry->id] = $logentry;
@@ -185,7 +195,8 @@ function attendanceregister_update_sessions_from_id($registers, $fromid) {
 function get_max_users_registers_logouts() {
     global $DB;
 
-    $sql = "select CONCAT(register, '_', userid) as fakeid, max(logout) logout, register, userid from {attendanceregister_session} group by register, userid";
+    $sql = "select CONCAT(register, '_', userid) as fakeid, max(logout) logout, "
+        ."register, userid from {attendanceregister_session} group by register, userid";
     $maxusersregisterslogouts = $DB->get_records_sql($sql, []);
 
     $structure = [];
@@ -289,7 +300,14 @@ function attendanceregister__order_logs_by_user_and_register($logentries, $dumpe
     return $tmp;
 }
 
-
+/**
+ * Filter logs by users.
+ *
+ * @param array $logentries
+ * @param array $trackedusersinregisters
+ * @param array $courseidtoregistermap
+ * @param array $maxusersregisterslogouts
+ */
 function attendanceregister__filter_logs_by_users($logentries, $trackedusersinregisters,
     $courseidtoregistermap, $maxusersregisterslogouts) {
     foreach (array_keys($logentries) as $key) {
@@ -366,43 +384,6 @@ function attendanceregister__get_log_entries_in_courses($fromid, $trackedcourses
     return [$logentries, $lastcronparsedlogid];
 }
 
-
-/**
- * Sets all log entries unused from previous elaborations in the dump table.
- *
- * @param array $dumpentriestodb
- */
-function attendanceregister__set_dump_entries($dumpentriestodb) {
-    global $DB;
-
-    try {
-        $transaction = $DB->start_delegated_transaction();
-        $deletetable = $DB->execute('TRUNCATE TABLE {attendanceregister_log_dump}', []);
-
-        $chuncks = array_chunk($dumpentriestodb, 1000);
-        foreach ($chuncks as $chunk) {
-            $insert = "INSERT INTO {attendanceregister_log_dump} (id, eventname, component, action, target, objecttable, ".
-                "objectid, crud, edulevel, contextid, contextlevel, contextinstanceid, userid, courseid, relateduserid, ".
-                "anonymous, other, timecreated, origin, ip, realuserid) VALUES ";
-            $valuesplaceholders = [];
-            for ($i = 1; $i <= count($chunk); $i++) {
-                $valuesplaceholders[] = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            }
-            $values = [];
-            foreach ($chunk as $item) {
-                $values = array_merge($values, array_values((array)$item));
-            }
-            $valuesplaceholderssql = implode(',', $valuesplaceholders);
-            $insert .= $valuesplaceholderssql;
-            $dumpentries = $DB->execute($insert, $values);
-        }
-
-        $transaction->allow_commit();
-    } catch (Exception $e) {
-        mtrace('DB problem, attendanceregister__set_dump_entries rollback');
-        $transaction->rollback($e);
-    }
-}
 
 
 

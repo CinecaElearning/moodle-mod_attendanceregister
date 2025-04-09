@@ -18,7 +18,7 @@
  * The course_module_viewed event.
  *
  * @package    mod_attendanceregister
- * @copyright  2015 CINECA
+ * @copyright  2012-2016 Lorenzo Nicora, 2016-today CINECA
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -34,7 +34,7 @@ namespace mod_attendanceregister\event;
  * }
  *
  * @since     Moodle 2.7
- * @copyright 2015 CINECA
+ * @copyright 2012-2016 Lorenzo Nicora, 2016-today CINECA
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  **/
 class course_module_viewed extends \core\event\course_module_viewed {

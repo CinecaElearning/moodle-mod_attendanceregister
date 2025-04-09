@@ -18,8 +18,8 @@
  * Definition of attendanceregister scheduled tasks.
  *
  * @package   mod_attendanceregister
- * @category  task
- * @copyright 2016 CINECA
+ * @copyright 2012-2016 Lorenzo Nicora, 2016-today CINECA
+ *
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
